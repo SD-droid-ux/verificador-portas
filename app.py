@@ -9,7 +9,7 @@ uploaded_file = st.file_uploader("Envie o arquivo Excel com os dados", type=["xl
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-
+    df.columns = df.columns.str.strip()
     st.subheader("🔢 Dados Carregados")
     st.dataframe(df)
 
