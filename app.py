@@ -2,94 +2,84 @@ import streamlit as st
 import pandas as pd
 import time
 
-st.set_page_config(page_title="Verificador de Portas", layout="wide")
-st.title("🔍 Verificador de Caminhos de Rede Saturados")
+st.set_page_config(layout="wide")
+st.title("📊 Verificador de Portas por Caminho de Rede")
 
-uploaded_file = st.sidebar.file_uploader("📁 Envie a planilha Excel", type=[".xlsx"])
+uploaded_file = st.file_uploader("📂 Envie a planilha Excel", type=[".xlsx"])
 
 if uploaded_file:
-    progress_bar = st.sidebar.progress(0, text="Lendo arquivo...")
     df = pd.read_excel(uploaded_file)
+    df = df.loc[:, ~df.columns.duplicated()]
 
-    # Verifica duplicatas
-    duplicated_cols = df.columns[df.columns.duplicated()].tolist()
-    colunas_esperadas = ['POP', 'CHASSI', 'PLACA', 'OLT', 'PORTAS']
-    colunas_ausentes = [col for col in colunas_esperadas if col not in df.columns]
+    colunas_essenciais = ["POP", "CHASSI", "PLACA", "OLT", "PORTAS", "ID CTO", "CIDADE"]
+    if not all(col in df.columns for col in colunas_essenciais):
+        st.error("❌ Colunas essenciais ausentes na planilha. Verifique se possui: " + ", ".join(colunas_essenciais))
+    else:
+        df["CAMINHO_REDE"] = df["POP"].astype(str) + " / " + df["CHASSI"].astype(str) + " / " + df["PLACA"].astype(str) + " / " + df["OLT"].astype(str)
 
-    if duplicated_cols or colunas_ausentes:
-        st.error("⚠️ Problemas encontrados na base:")
-        if duplicated_cols:
-            st.error(f"🔁 Colunas duplicadas: {duplicated_cols}")
-        if colunas_ausentes:
-            st.error(f"❌ Colunas ausentes: {colunas_ausentes}")
-        st.stop()
+        aba = st.sidebar.radio("Selecione a aba", ["1. Visão Geral", "2. Filtro por Cidade", "3. Buscar por CTO"])
 
-    # Normaliza tipos e cria identificador do caminho
-    df['PORTAS'] = pd.to_numeric(df['PORTAS'], errors='coerce')
-    df['CAMINHO_REDE'] = df['POP'].astype(str) + " / " + df['CHASSI'].astype(str) + " / " + df['PLACA'].astype(str) + " / " + df['OLT'].astype(str)
+        if aba == "1. Visão Geral":
+            with st.spinner("🔄 Carregando visão geral..."):
+                progress_bar = st.progress(0)
+                for i in range(5):
+                    time.sleep(0.2)
+                    progress_bar.progress((i + 1) * 20)
 
-    aba = st.sidebar.radio("Escolha uma aba:", ["1️⃣ Visão Geral", "2️⃣ Filtrar por Cidade (Saturados)", "3️⃣ Buscar por CTO"])
+                total_ctos = len(df)
+                total_portas = df["PORTAS"].sum()
+                caminho_rede_grupo = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
+                saturados = caminho_rede_grupo[caminho_rede_grupo["PORTAS"] > 128]
 
-    if aba == "1️⃣ Visão Geral":
-        st.subheader("📊 Visão Geral dos Caminhos de Rede")
-        caminho_group = df.groupby('CAMINHO_REDE')['PORTAS'].sum().reset_index()
-        caminho_group['STATUS'] = caminho_group['PORTAS'].apply(lambda x: '🔴 Saturado' if x > 128 else '🟢 OK')
-        st.dataframe(caminho_group)
+            progress_bar.empty()
 
-    elif aba == "2️⃣ Filtrar por Cidade (Saturados)":
-        st.subheader("🏙️ Caminhos Saturados por Cidade")
-        cidades = df['CIDADE'].dropna().unique()
-        cidade_escolhida = st.selectbox("Escolha a cidade:", cidades)
+            st.metric("🔢 Total de CTOs", total_ctos)
+            st.metric("🔌 Total de Portas", total_portas)
+            st.metric("🔴 Caminhos Saturados", len(saturados))
 
-        if st.button("🔎 Buscar Caminhos Saturados"):
-            progress = st.progress(0, text="Analisando dados...")
-            df_cidade = df[df['CIDADE'] == cidade_escolhida].copy()
+        elif aba == "2. Filtro por Cidade":
+            cidade = st.selectbox("Selecione a Cidade", df["CIDADE"].unique())
 
-            df_cidade['CAMINHO_REDE'] = df_cidade['POP'].astype(str) + " / " + df_cidade['CHASSI'].astype(str) + " / " + df_cidade['PLACA'].astype(str) + " / " + df_cidade['OLT'].astype(str)
-            total = len(df_cidade['CAMINHO_REDE'].unique())
-            saturados = []
-            for i, (caminho, grupo) in enumerate(df_cidade.groupby('CAMINHO_REDE')):
-                soma = grupo['PORTAS'].sum()
-                if soma > 128:
-                    saturados.append({"CAMINHO": caminho, "PORTAS": soma})
-                progress.progress(int((i + 1) / total * 100), text=f"Analisando {i + 1}/{total} caminhos...")
+            if st.button("🔍 Filtrar Caminhos Saturados"):
+                with st.spinner("🔄 Analisando cidade selecionada..."):
+                    progress_bar = st.progress(0)
+                    for i in range(5):
+                        time.sleep(0.2)
+                        progress_bar.progress((i + 1) * 20)
 
-            resultado = pd.DataFrame(saturados)
-            if not resultado.empty:
-                st.success(f"✅ {len(resultado)} caminhos saturados encontrados!")
-                st.dataframe(resultado)
-            else:
-                st.info("Nenhum caminho saturado encontrado.")
+                    df_cidade = df[df["CIDADE"] == cidade]
+                    grupo = df_cidade.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
+                    saturados = grupo[grupo["PORTAS"] > 128]
 
-    elif aba == "3️⃣ Buscar por CTO":
-        st.subheader("🔍 Análise por CTO")
-        ctos_input = st.text_area("Insira os IDs das CTOs (um por linha):")
+                    st.subheader(f"Caminhos Saturados em {cidade}")
+                    st.dataframe(saturados)
 
-        if st.button("🔎 Buscar CTOs"):
-            progress = st.progress(0, text="Analisando CTOs...")
-            ctos = [cto.strip() for cto in ctos_input.strip().split("\n") if cto.strip()]
-            df_filtrado = df[df['ID CTO'].isin(ctos)].copy()
+                progress_bar.empty()
 
-            total = len(ctos)
-            resultados = []
-            for i, cto in enumerate(ctos):
-                linha = df[df['ID CTO'] == cto]
-                if not linha.empty:
-                    portas = int(linha['PORTAS'].values[0])
-                    caminho = linha['CAMINHO_REDE'].values[0]
-                    soma = df[df['CAMINHO_REDE'] == caminho]['PORTAS'].sum()
-                    status = []
-                    if portas == 16:
-                        status.append("🟡 16 portas (fora do padrão)")
-                    elif portas == 8 and soma <= 128:
-                        status.append("🟢 OK")
-                    if soma > 128:
-                        status.append("🔴 Caminho Saturado")
-                    resultados.append({"CTO": cto, "PORTAS": portas, "CAMINHO": caminho, "STATUS": ", ".join(status)})
-                else:
-                    resultados.append({"CTO": cto, "PORTAS": "-", "CAMINHO": "Não encontrado", "STATUS": "❌ Não encontrada"})
-                progress.progress(int((i + 1) / total * 100), text=f"Analisando {i + 1}/{total} CTOs...")
+        elif aba == "3. Buscar por CTO":
+            input_ctos = st.text_area("Insira os ID das CTOs (uma por linha)").splitlines()
 
-            st.dataframe(pd.DataFrame(resultados))
+            if st.button("🔍 Buscar CTOs"):
+                with st.spinner("🔄 Analisando CTOs..."):
+                    progress_bar = st.progress(0)
+                    for i in range(5):
+                        time.sleep(0.2)
+                        progress_bar.progress((i + 1) * 20)
+
+                    df_ctos = df[df["ID CTO"].isin(input_ctos)]
+
+                    def verificar_status(linha):
+                        total = df[df["CAMINHO_REDE"] == linha["CAMINHO_REDE"]]["PORTAS"].sum()
+                        if total > 128:
+                            return "🔴 Saturado"
+                        elif linha["PORTAS"] == 16:
+                            return "⚠️ 16 portas (fora padrão)"
+                        else:
+                            return "✅ OK"
+
+                    df_ctos["STATUS"] = df_ctos.apply(verificar_status, axis=1)
+                    st.dataframe(df_ctos)
+
+                progress_bar.empty()
 else:
-    st.warning("⚠️ Envie um arquivo Excel para iniciar.")
+    st.info("📥 Aguarde o envio de um arquivo para iniciar a análise.")
