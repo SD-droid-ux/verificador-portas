@@ -56,7 +56,7 @@ if uploaded_file:
 
                 progress_bar.empty()
 
-                      elif aba == "3. Buscar por CTO":
+                              elif aba == "3. Buscar por CTO":
             input_ctos = st.text_area("Insira os ID das CTOs (uma por linha)").splitlines()
 
             if st.button("🔍 Buscar CTOs"):
@@ -89,4 +89,5 @@ if uploaded_file:
                     st.dataframe(df_ctos)
 
                 progress_bar.empty()
+
 
