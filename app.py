@@ -1,72 +1,71 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Verificador de Portas CTO", layout="wide")
-st.title("🔎 Verificador de Caminhos de Rede com Excesso de Portas")
+st.set_page_config(page_title="Verificador de Portas", layout="wide")
+st.title("📊 Verificador de Caminhos de Rede Saturados")
 
-# Upload da planilha
-uploaded_file = st.file_uploader("📤 Envie a planilha Excel (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("📎 Envie a planilha Excel com os dados", type=["xlsx"])
 
 if uploaded_file:
-    try:
-        # Leitura e limpeza inicial
-        df = pd.read_excel(uploaded_file)
-        df.columns = df.columns.str.strip()
+    progress_bar = st.progress(0, text="🔍 Iniciando análise...")
 
-        st.subheader("📋 Colunas encontradas:")
+    # Etapa 1 - Leitura da planilha (tenta pular linhas mal formatadas)
+    progress_bar.progress(10, text="📄 Lendo a planilha...")
+    found = False
+    for skip in range(5):
+        df = pd.read_excel(uploaded_file, skiprows=skip)
+        df.columns = df.columns.astype(str).str.strip()
         colunas = df.columns.tolist()
-        st.write(colunas)
 
-        # Verifica colunas duplicadas
-        colunas_duplicadas = df.columns[df.columns.duplicated()].tolist()
-        if colunas_duplicadas:
-            st.warning(f"⚠️ Colunas duplicadas encontradas: {colunas_duplicadas}")
-        else:
-            st.success("✅ Não há colunas duplicadas.")
+        colunas_essenciais = ['POP', 'CHASSI', 'PLACA', 'OLT', 'PORTAS']
+        if all(col in colunas for col in colunas_essenciais):
+            found = True
+            break
 
-        # Colunas essenciais
-        col_essenciais = ["POP", "CHASSI", "PLACA", "OLT", "PORTAS"]
-        ausentes = [col for col in col_essenciais if col not in df.columns]
-        if ausentes:
-            st.error(f"❌ Colunas essenciais ausentes: {ausentes}")
-            st.stop()
-        else:
-            st.success("✅ Todas as colunas essenciais estão presentes.")
+    progress_bar.progress(30, text="📑 Verificando colunas...")
 
-        # Filtro por cidade
-        cidades = df["CIDADE"].dropna().unique().tolist()
-        cidade_selecionada = st.selectbox("🌆 Filtrar por cidade:", ["Todas"] + sorted(cidades))
+    if not found:
+        st.error("❌ Não foi possível localizar as colunas essenciais.")
+        st.warning(f"⚠️ Colunas lidas: {colunas}")
+        st.stop()
 
-        if cidade_selecionada != "Todas":
-            df = df[df["CIDADE"] == cidade_selecionada]
+    # Etapa 2 - Criação da coluna Caminho de Rede
+    progress_bar.progress(50, text="🔗 Gerando Caminhos de Rede...")
+    df["CAMINHO_REDE"] = (
+        df["POP"].astype(str) + " / " +
+        df["CHASSI"].astype(str) + " / " +
+        df["PLACA"].astype(str) + " / " +
+        df["OLT"].astype(str)
+    )
 
-        # Criar coluna de identificação do Caminho de Rede
-        df["CAMINHO_REDE"] = (
-            df["POP"].astype(str) + " / " +
-            df["CHASSI"].astype(str) + " / " +
-            df["PLACA"].astype(str) + " / " +
-            df["OLT"].astype(str)
-        )
+    # Etapa 3 - Conversão de PORTAS
+    progress_bar.progress(60, text="🔢 Convertendo dados de portas...")
+    df["PORTAS"] = pd.to_numeric(df["PORTAS"], errors="coerce")
 
-        # Calcular total de portas por caminho
-        soma_portas = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
-        soma_portas.columns = ["CAMINHO_REDE", "TOTAL_PORTAS"]
-        saturados = soma_portas[soma_portas["TOTAL_PORTAS"] > 128]
+    # Etapa 4 - Mostrar os dados
+    progress_bar.progress(70, text="📋 Exibindo dados da planilha...")
+    st.subheader("📄 Dados da Planilha")
+    st.dataframe(df)
 
-        st.subheader("📊 Caminhos de Rede fora do padrão (mais de 128 portas):")
+    # Etapa 5 - Filtro por cidade
+    progress_bar.progress(80, text="🏙️ Aplicando filtro por cidade...")
+    cidades = df["CIDADE"].dropna().unique()
+    cidade = st.selectbox("Selecione a cidade:", ["Todas"] + list(cidades))
 
-        if not saturados.empty:
-            for _, row in saturados.iterrows():
-                st.error(f"🚨 {row['CAMINHO_REDE']}\nTotal de portas: {row['TOTAL_PORTAS']}")
-        else:
-            st.success("✅ Nenhum Caminho de Rede ultrapassa 128 portas.")
+    if cidade != "Todas":
+        df = df[df["CIDADE"] == cidade]
 
-        # Exibir tabela completa se desejar
-        with st.expander("🔍 Ver tabela original"):
-            st.dataframe(df)
+    # Etapa 6 - Agrupar e calcular
+    progress_bar.progress(90, text="🧮 Agrupando e analisando caminhos de rede...")
+    soma_portas = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
+    saturados = soma_portas[soma_portas["PORTAS"] > 128]
 
-    except Exception as e:
-        st.error("❌ Erro ao processar a planilha.")
-        st.exception(e)
-else:
-    st.info("👈 Envie um arquivo Excel para iniciar a análise.")
+    # Etapa 7 - Resultado final
+    progress_bar.progress(100, text="✅ Análise concluída!")
+
+    if not saturados.empty:
+        st.subheader("🚨 Caminhos de Rede Saturados")
+        for _, row in saturados.iterrows():
+            st.error(f"🔴 {row['CAMINHO_REDE']}\n➡️ Total de portas: {int(row['PORTAS'])} (Limite: 128)")
+    else:
+        st.success("✅ Todos os Caminhos de Rede estão dentro do limite de 128 portas.")
