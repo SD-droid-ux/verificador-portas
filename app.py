@@ -66,7 +66,7 @@ if uploaded_file:
                         time.sleep(0.2)
                         progress_bar.progress((i + 1) * 20)
 
-                    df_ctos = df[df["ID CTO"].isin(input_ctos)]
+                    df_ctos = df[df["NOME ANTIGO CTO"].isin(input_ctos)]
 
                     def verificar_status(linha):
                         total = df[df["CAMINHO_REDE"] == linha["CAMINHO_REDE"]]["PORTAS"].sum()
