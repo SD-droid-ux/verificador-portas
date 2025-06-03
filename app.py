@@ -56,7 +56,7 @@ if uploaded_file:
 
                 progress_bar.empty()
 
-        elif aba == "3. Buscar por CTO":
+               elif aba == "3. Buscar por CTO":
             input_ctos = st.text_area("Insira os ID das CTOs (uma por linha)").splitlines()
 
             if st.button("🔍 Buscar CTOs"):
@@ -66,7 +66,7 @@ if uploaded_file:
                         time.sleep(0.2)
                         progress_bar.progress((i + 1) * 20)
 
-                    df_ctos = df[df["NOME ANTIGO CTO"].isin(input_ctos)]
+                    df_ctos = df[df["ID CTO"].isin(input_ctos)]
 
                     def verificar_status(linha):
                         total = df[df["CAMINHO_REDE"] == linha["CAMINHO_REDE"]]["PORTAS"].sum()
@@ -78,8 +78,17 @@ if uploaded_file:
                             return "✅ OK"
 
                     df_ctos["STATUS"] = df_ctos.apply(verificar_status, axis=1)
+
+                    # Ordenar na mesma ordem da entrada
+                    df_ctos["ID CTO"] = pd.Categorical(df_ctos["ID CTO"], categories=input_ctos, ordered=True)
+                    df_ctos = df_ctos.sort_values("ID CTO")
+
+                    # Remover coluna 'Unnamed: 0' se existir
+                    df_ctos = df_ctos.loc[:, ~df_ctos.columns.str.contains("^Unnamed")]
+
                     st.dataframe(df_ctos)
 
                 progress_bar.empty()
+
 else:
     st.info("📥 Aguarde o envio de um arquivo para iniciar a análise.")
