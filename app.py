@@ -3,96 +3,73 @@ import pandas as pd
 import time
 
 st.set_page_config(page_title="Verificador de Portas", layout="wide")
-st.title("📊 Verificador de Caminhos de Rede Saturados")
 
-uploaded_file = st.file_uploader("📁 Envie a planilha Excel (.xlsx)", type="xlsx")
+st.title("🔌 Verificador de Portas por Caminho de Rede")
+
+uploaded_file = st.file_uploader("📂 Envie o arquivo Excel com os dados das CTOs", type=[".xlsx"])
 
 if uploaded_file:
-    progress_text = "⏳ Analisando o arquivo..."
-    progress_bar = st.progress(0, text=progress_text)
+    progress_bar = st.progress(0, text="⏳ Analisando dados...")
 
-    df = pd.read_excel(uploaded_file, header=0)
-    df.columns = df.columns.astype(str).str.strip()
+    for i in range(100):
+        time.sleep(0.01)  # Simula processamento real
+        progress_bar.progress(i + 1, text=f"⏳ Analisando dados... {i + 1}%")
 
-    time.sleep(0.3)
-    progress_bar.progress(10, text=progress_text)
+    df = pd.read_excel(uploaded_file, dtype=str)
+    df.columns = [str(col).strip().upper() for col in df.columns]
+    df = df.loc[:, ~df.columns.duplicated()]
 
-    col_duplicadas = df.columns[df.columns.duplicated()].tolist()
-    col_essenciais = ['POP', 'CHASSI', 'PLACA', 'OLT', 'PORTAS']
-
-    if col_duplicadas:
-        st.warning(f"⚠️ Colunas duplicadas encontradas: {col_duplicadas}")
-
-    col_ausentes = [col for col in col_essenciais if col not in df.columns]
-    if col_ausentes:
-        st.error(f"❌ Colunas essenciais ausentes: {col_ausentes}")
+    colunas_essenciais = ["POP", "CHASSI", "PLACA", "OLT", "PORTAS", "ID CTO", "CIDADE"]
+    if not all(col in df.columns for col in colunas_essenciais):
+        st.error("❌ Algumas colunas essenciais estão ausentes na planilha. Verifique a estrutura do arquivo.")
     else:
-        for col in col_essenciais:
-            df[col] = df[col].astype(str)
-
-        df["PORTAS"] = pd.to_numeric(df["PORTAS"], errors="coerce").fillna(0).astype(int)
-
-        time.sleep(0.3)
-        progress_bar.progress(30, text=progress_text)
-
+        df["PORTAS"] = pd.to_numeric(df["PORTAS"], errors="coerce")
         df["CAMINHO_REDE"] = df["POP"] + " / " + df["CHASSI"] + " / " + df["PLACA"] + " / " + df["OLT"]
 
-        time.sleep(0.3)
-        progress_bar.progress(50, text=progress_text)
+        grupo = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
+        grupo_saturado = grupo[grupo["PORTAS"] > 128]
+        caminhos_saturados = grupo_saturado["CAMINHO_REDE"].tolist()
 
-        caminho_rede = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
-        caminho_rede.columns = ["CAMINHO_REDE", "TOTAL_PORTAS"]
+        st.subheader("1️⃣ Visão Geral")
+        st.write("Todos os caminhos de rede (sem filtro de saturação):")
+        st.dataframe(grupo)
 
-        saturados = caminho_rede[caminho_rede["TOTAL_PORTAS"] > 128]
+        st.subheader("2️⃣ Caminhos de Rede Saturados por Cidade")
+        cidades = df["CIDADE"].dropna().unique().tolist()
+        cidade_selecionada = st.selectbox("Selecione a cidade", sorted(cidades))
 
-        time.sleep(0.3)
-        progress_bar.progress(80, text=progress_text)
+        saturados_filtrados = df[df["CAMINHO_REDE"].isin(caminhos_saturados)]
+        saturados_filtrados = saturados_filtrados[saturados_filtrados["CIDADE"] == cidade_selecionada]
 
-        df = df.merge(caminho_rede, on="CAMINHO_REDE", how="left")
-        df['STATUS_CAMINHO'] = df['TOTAL_PORTAS'].apply(lambda x: "Saturado" if x > 128 else "OK")
+        st.write(f"Caminhos de rede saturados em **{cidade_selecionada}**:")
+        st.dataframe(saturados_filtrados)
 
-        time.sleep(0.2)
-        progress_bar.progress(100, text="✅ Análise concluída!")
+        st.subheader("3️⃣ Consulta por CTO")
+        st.write("Digite as CTOs separadas por linha. Exemplo:")
+        st.code("CTO001\nCTO002\nCTO003")
 
-        aba1, aba2, aba3 = st.tabs(["1. Análise Geral", "2. Filtro por Cidade", "3. Consulta por CTO"])
+        cto_input = st.text_area("Insira as CTOs", height=150)
 
-        with aba1:
-            st.subheader("🔎 Caminhos de Rede com Excesso de Portas")
-            if saturados.empty:
-                st.success("Todos os caminhos de rede estão dentro do padrão (até 128 portas). ✅")
+        if st.button("🔍 Buscar CTOs"):
+            lista_ctos = [cto.strip().upper() for cto in cto_input.splitlines() if cto.strip()]
+            df_ctos = df[df["ID CTO"].isin(lista_ctos)]
+
+            if df_ctos.empty:
+                st.warning("Nenhuma CTO encontrada na base de dados.")
             else:
-                for _, row in saturados.iterrows():
-                    st.error(f"🚨 Caminho de Rede: {row['CAMINHO_REDE']} | Portas: {row['TOTAL_PORTAS']}")
+                def avaliar_cto(row):
+                    caminho = row["CAMINHO_REDE"]
+                    portas = row["PORTAS"]
+                    if pd.isna(portas):
+                        return "⚠️ Portas indefinidas"
+                    if caminho in caminhos_saturados:
+                        return f"🔴 {int(portas)} portas (Caminho Saturado)"
+                    elif int(portas) == 16:
+                        return "🟡 16 portas (fora do padrão)"
+                    elif int(portas) == 8:
+                        return "🟢 8 portas (ok)"
+                    else:
+                        return f"⚠️ {int(portas)} portas (verificar)"
 
-        with aba2:
-            cidades = sorted(df["CIDADE"].dropna().unique())
-            cidade_selecionada = st.selectbox("Selecione a cidade:", cidades)
-            df_filtrado = df[df["CIDADE"] == cidade_selecionada]
-            st.dataframe(df_filtrado)
-
-        with aba3:
-            st.title("🔍 3. Consulta por CTO")
-            st.markdown("Insira os ID das CTOs separados por vírgula (ex: `CTO001, CTO002, CTO003`)")
-            input_ctos = st.text_area("Lista de CTOs", height=100)
-
-            if input_ctos:
-                lista_ctos = [cto.strip() for cto in input_ctos.split(",") if cto.strip()]
-                df_ctos = df[df["ID CTO"].isin(lista_ctos)].copy()
-
-                if df_ctos.empty:
-                    st.warning("Nenhuma CTO encontrada na base.")
-                else:
-                    caminho_rede_portas = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
-                    caminho_rede_portas.columns = ["CAMINHO_REDE", "PORTAS_TOTAL"]
-
-                    df_ctos = df_ctos.merge(caminho_rede_portas, on="CAMINHO_REDE", how="left")
-                    df_ctos["STATUS_CAMINHO"] = df_ctos["PORTAS_TOTAL"].apply(
-                        lambda x: "Saturado" if x > 128 else "OK"
-                    )
-
-                    st.success(f"✅ {len(df_ctos)} CTO(s) encontradas.")
-                    st.dataframe(df_ctos[[
-                        "ID CTO", "CAMINHO_REDE", "PORTAS", "PORTAS_TOTAL", "STATUS_CAMINHO"
-                    ]].sort_values("CAMINHO_REDE"))
-else:
-    st.info("📂 Aguardando envio da planilha Excel para iniciar a análise.")
+                df_ctos["AVALIAÇÃO"] = df_ctos.apply(avaliar_cto, axis=1)
+                st.dataframe(df_ctos[["ID CTO", "CAMINHO_REDE", "PORTAS", "AVALIAÇÃO"]])
