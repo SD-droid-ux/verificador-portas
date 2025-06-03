@@ -2,53 +2,55 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="Verificador de Portas", layout="wide")
+st.title("🔌 Verificador de Portas por Caminho de Rede")
 
-st.title("🔌 Verificador de Caminhos de Rede com Excesso de Portas")
+uploaded_file = st.file_uploader("📤 Envie a planilha Excel", type=["xlsx"])
 
-# Upload do arquivo Excel
-arquivo = st.file_uploader("Envie a planilha Excel (.xlsx)", type=["xlsx"])
+if uploaded_file:
+    try:
+        df = pd.read_excel(uploaded_file)
 
-if arquivo:
-    df = pd.read_excel(arquivo)
+        # Verificar colunas duplicadas
+        duplicated_columns = df.columns[df.columns.duplicated()].tolist()
+        if duplicated_columns:
+            st.error("❌ Há colunas duplicadas na planilha! Corrija antes de continuar.")
+            st.warning(f"Colunas duplicadas encontradas: {duplicated_columns}")
+        else:
+            # Criar coluna de caminho de rede
+            df["CAMINHO_REDE"] = (
+                df["POP"].astype(str)
+                + " / "
+                + df["CHASSI"].astype(str)
+                + " / "
+                + df["PLACA"].astype(str)
+                + " / "
+                + df["OLT"].astype(str)
+            )
 
-    # Limpa espaços dos nomes das colunas
-    df.columns = df.columns.str.strip()
+            # Filtro por cidade
+            cidades = df["CIDADE"].dropna().unique().tolist()
+            cidade_selecionada = st.selectbox("🏙️ Selecione uma cidade", ["Todas"] + cidades)
 
-    # Verifica colunas duplicadas
-    if df.columns.duplicated().any():
-        st.error("Erro: Há colunas com nomes duplicados no arquivo Excel. Verifique e corrija antes de continuar.")
-        st.stop()
+            if cidade_selecionada != "Todas":
+                df = df[df["CIDADE"] == cidade_selecionada]
 
-    # Mostra a tabela
-    st.subheader("📄 Dados da Planilha")
-    st.dataframe(df)
+            st.subheader("📋 Dados da Planilha")
+            st.dataframe(df, use_container_width=True)
 
-    # Filtro por cidade
-    cidades = df["CIDADE"].dropna().unique()
-    cidade_selecionada = st.selectbox("Filtrar por cidade", sorted(cidades))
+            # Agrupar e somar portas por caminho de rede
+            st.subheader("🚨 Caminhos de Rede Saturados (>128 portas)")
+            portas_por_caminho = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
+            saturados = portas_por_caminho[portas_por_caminho["PORTAS"] > 128]
 
-    df_filtrado = df[df["CIDADE"] == cidade_selecionada]
+            if not saturados.empty:
+                for _, row in saturados.iterrows():
+                    st.error(
+                        f'Caminho de Rede: **{row["CAMINHO_REDE"]}** — '
+                        f'🔴 Total de portas: **{row["PORTAS"]}** (limite: 128)'
+                    )
+            else:
+                st.success("✅ Nenhum caminho de rede ultrapassou 128 portas.")
 
-    # Criar coluna 'CAMINHO_REDE'
-    df_filtrado["CAMINHO_REDE"] = (
-        df_filtrado["POP"].astype(str).str.strip() + " / " +
-        df_filtrado["CHASSI"].astype(str).str.strip() + " / " +
-        df_filtrado["PLACA"].astype(str).str.strip() + " / " +
-        df_filtrado["OLT"].astype(str).str.strip()
-    )
-
-    # Agrupar e somar as portas por caminho de rede
-    soma_portas = df_filtrado.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
-
-    # Filtrar caminhos de rede que ultrapassam 128 portas
-    saturados = soma_portas[soma_portas["PORTAS"] > 128]
-
-    st.subheader("🚨 Caminhos de Rede Saturados")
-    if not saturados.empty:
-        for _, row in saturados.iterrows():
-            st.markdown(f"""
-            - **Caminho de Rede**: `{row['CAMINHO_REDE']}`  
-              ➤ Total de portas: `{row['PORTAS']}` (limite: 128) ⚠️
-            """)
-    else:
-        st.success("Nenhum caminho de rede ultrapassou o limite de 128 portas.")
+    except Exception as e:
+        st.error("❌ Ocorreu um erro ao processar a planilha.")
+        st.exception(e)
