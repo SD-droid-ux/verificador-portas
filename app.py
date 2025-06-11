@@ -7,7 +7,7 @@ st.title("🔍 Buscar por CTO")
 
 caminho_base = os.path.join("pages", "base_de_dados", "base.xlsx")
 
-# Cache para leitura da base (executa só uma vez e reutiliza)
+# Cache na leitura da base
 @st.cache_data(show_spinner=False)
 def carregar_base(caminho):
     df = pd.read_excel(caminho, engine="openpyxl")
@@ -16,62 +16,73 @@ def carregar_base(caminho):
     df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
     return df
 
-# Entrada do usuário
-ctos_inputadas_raw = st.text_area("✏️ Lista de CTOs já indicadas (uma por linha):")
+# Entrada
+ctos_inputadas_raw = st.text_area("✏️ Lista de CTOs para analisar (uma por linha):")
 ctos_inputadas = [cto.strip().upper() for cto in ctos_inputadas_raw.split("\n") if cto.strip()]
 
-if st.button("🔎 Iniciar Busca de CTOs"):
+if st.button("🔎 Iniciar análise individual"):
     if not ctos_inputadas:
-        st.warning("Por favor, insira ao menos uma CTO.")
+        st.warning("Insira ao menos uma CTO.")
         st.stop()
 
     try:
         df = carregar_base(caminho_base)
     except Exception as e:
-        st.error(f"Erro ao carregar a base: {e}")
+        st.error(f"Erro ao carregar base: {e}")
         st.stop()
 
-    # Filtra df para conter só CTOs indicadas e seus caminhos de rede
-    df_ctos_indicadas = df[df["cto_upper"].isin(ctos_inputadas)]
-    caminhos_rede_dos_ctos = df_ctos_indicadas["CAMINHO_REDE"].unique()
+    # Resultado acumulado
+    resultados = []
 
-    # Filtra df original para linhas que pertencem aos caminhos de rede relevantes
-    df_filtrado = df[df["CAMINHO_REDE"].isin(caminhos_rede_dos_ctos)].copy()
+    for cto_input in ctos_inputadas:
+        cto_linha = df[df["cto_upper"] == cto_input]
 
-    # Soma total portas por caminho no df filtrado
-    total_portas = df_filtrado.groupby("CAMINHO_REDE")["portas"].sum().rename("portas_totais")
-    df_filtrado = df_filtrado.join(total_portas, on="CAMINHO_REDE")
+        if cto_linha.empty:
+            resultados.append({
+                "cto": cto_input,
+                "status": "❌ CTO não encontrada na base",
+                "caminho_rede": "-",
+                "portas": "-",
+                "portas_totais": "-",
+                "cto_trocavel": "-"
+            })
+            continue
 
-    df_filtrado["cto_upper"] = df_filtrado["cto_upper"].astype(str)
-    df_filtrado["inputada"] = df_filtrado["cto_upper"].isin(ctos_inputadas)
-    df_filtrado["status"] = "⚪ STATUS INDEFINIDO"
-    df_filtrado["cto_trocavel"] = ""
+        cto_linha = cto_linha.iloc[0]  # única ocorrência esperada
+        caminho_rede = cto_linha["CAMINHO_REDE"]
+        portas_cto = cto_linha["portas"]
 
-    # Condições vetorizadas
-    cond1 = (df_filtrado["portas"] == 8) & (df_filtrado["portas_totais"] + 8 <= 128)
-    df_filtrado.loc[cond1, "status"] = "✅ TROCA DE SP8 PARA SP16"
+        # Total de portas nesse caminho de rede
+        df_caminho = df[df["CAMINHO_REDE"] == caminho_rede]
+        portas_totais = df_caminho["portas"].sum()
 
-    cond2 = (df_filtrado["portas"] == 8) & (df_filtrado["portas_totais"] + 8 > 128)
-    df_filtrado.loc[cond2, "status"] = "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON"
+        status = "⚪ STATUS INDEFINIDO"
+        cto_trocavel = ""
 
-    cond3 = (df_filtrado["portas"] == 16) & (df_filtrado["portas_totais"] >= 128)
-    df_filtrado.loc[cond3, "status"] = "🔴 PON JÁ ESTÁ SATURADA"
+        if portas_cto == 8 and portas_totais + 8 <= 128:
+            status = "✅ TROCA DE SP8 PARA SP16"
+        elif portas_cto == 8 and portas_totais + 8 > 128:
+            status = "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE"
+        elif portas_cto == 16 and portas_totais >= 128:
+            status = "🔴 CTO É SP16 E CAMINHO SATURADO"
+        elif portas_cto == 16 and portas_totais < 128:
+            # Verifica se há CTO SP8 disponível no mesmo caminho
+            df_sp8_disp = df_caminho[(df_caminho["portas"] == 8) & (df_caminho["cto_upper"] != cto_input)]
+            if not df_sp8_disp.empty:
+                cto_trocavel = df_sp8_disp.iloc[0]["cto"]
+                status = "✅ CTO É SP16 E PODE TROCAR OUTRA SP8"
+            else:
+                status = "🔴 CTO É SP16, SEM SP8 DISPONÍVEL"
 
-    # SP8 disponíveis no mesmo caminho, excluindo CTOs inputadas
-    df_sp8_disp = df_filtrado[
-        (df_filtrado["portas"] == 8) &
-        (~df_filtrado["cto_upper"].isin(ctos_inputadas))
-    ][["CAMINHO_REDE", "cto"]]
+        resultados.append({
+            "cto": cto_input,
+            "status": status,
+            "caminho_rede": caminho_rede,
+            "portas": portas_cto,
+            "portas_totais": portas_totais,
+            "cto_trocavel": cto_trocavel
+        })
 
-    sp8_disponiveis_dict = df_sp8_disp.groupby("CAMINHO_REDE")["cto"].first().to_dict()
-
-    cond4 = (df_filtrado["portas"] == 16) & (df_filtrado["portas_totais"] < 128)
-    df_sp16_validas = df_filtrado[cond4].copy()
-
-    df_filtrado.loc[cond4, "status"] = df_sp16_validas["CAMINHO_REDE"].map(
-        lambda c: "✅ CTO JÁ É SP16 MAS PODE TROCAR SP8 NO CAMINHO" if c in sp8_disponiveis_dict else "🔴 CTO É SP16 MAS PON JÁ ESTÁ SATURADA"
-    )
-    df_filtrado.loc[cond4, "cto_trocavel"] = df_sp16_validas["CAMINHO_REDE"].map(sp8_disponiveis_dict)
-
-    st.success("✅ Análise concluída com sucesso!")
-    st.dataframe(df_filtrado.reset_index(drop=True))
+    df_resultado = pd.DataFrame(resultados)
+    st.success("✅ Análise concluída")
+    st.dataframe(df_resultado, use_container_width=True)
