@@ -42,12 +42,21 @@ if st.button("🔍 Buscar CTOs"):
         df_ctos["ordem"] = pd.Categorical(df_ctos["cto"].str.upper(), categories=input_ctos, ordered=True)
         df_ctos = df_ctos.sort_values("ordem").drop(columns=["ordem"])
 
+        # Separa CTOs não ativadas
+        ctos_nao_ativadas = df_ctos[df_ctos["status"].str.upper() != "ATIVADO"]
+        df_ctos = df_ctos[df_ctos["status"].str.upper() == "ATIVADO"]
+
+        if df_ctos.empty:
+            st.warning("⚠️ Nenhuma CTO ATIVADO foi encontrada entre as selecionadas.")
+            if not ctos_nao_ativadas.empty:
+                st.info("📌 CTOs com status diferente de ATIVADO:")
+                st.dataframe(ctos_nao_ativadas)
+            st.stop()
+
         df_ctos["CAMINHO_REDE"] = df_ctos["pop"].astype(str) + "/" + df_ctos["olt"].astype(str) + "/" + df_ctos["slot"].astype(str) + "/" + df_ctos["pon"].astype(str)
         df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
 
         input_ctos_upper = set(input_ctos)
-
-        # Lista temporária com CTOs de troca já categorizadas (será atualizada após)
         ctos_trocadas = set()
 
         def classificar(row):
@@ -69,7 +78,6 @@ if st.button("🔍 Buscar CTOs"):
                     return "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON", ""
 
             if row["portas"] == 16 and total_portas < 128:
-                # Buscar SP8 fora da lista e fora das já trocadas
                 sp8_disponiveis = df[
                     (df["CAMINHO_REDE"] == caminho) &
                     (df["portas"] == 8) &
@@ -87,13 +95,17 @@ if st.button("🔍 Buscar CTOs"):
 
         df_ctos[["STATUS", "CTO_SUGERIDA_TROCA"]] = df_ctos.apply(lambda row: pd.Series(classificar(row)), axis=1)
 
-        st.success(f"✅ {len(df_ctos)} CTO(s) analisadas.")
+        st.success(f"✅ {len(df_ctos)} CTO(s) ATIVADO analisadas.")
         st.dataframe(df_ctos)
+
+        if not ctos_nao_ativadas.empty:
+            st.info("📌 As seguintes CTOs não estavam ativadas e não foram analisadas:")
+            st.dataframe(ctos_nao_ativadas)
 
         st.download_button(
             label="📥 Baixar Resultado (.xlsx)",
             data=df_ctos.to_excel(index=False),
-            file_name="resultado_ctos.xlsx"
+            file_name="resultado_ctos_ativadas.xlsx"
         )
 
         progress_bar.empty()
