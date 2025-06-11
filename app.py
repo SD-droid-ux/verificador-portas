@@ -1,91 +1,54 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(layout="wide")
-st.title("🔍 Busca por CTOs Ativas")
+st.set_page_config(page_title="Busca por CTOs", layout="wide")
 
-# Upload da base
-arquivo = st.file_uploader("Envie a base de dados", type=[".xlsx"])
+st.title("🔍 Busca por CTOs Específicas")
 
-if arquivo:
-    df_base = pd.read_excel(arquivo)
+# Upload do arquivo Excel com a base de dados
+uploaded_file = st.file_uploader("📁 Envie o arquivo Excel da base de rede:", type=["xlsx"])
 
-    # Entrada da lista de CTOs a serem buscadas
-    st.subheader("🔎 Insira as CTOs para análise (uma por linha):")
-    input_ctos = st.text_area("Lista de CTOs").upper().splitlines()
-    input_ctos = [cto.strip() for cto in input_ctos if cto.strip()]
+if uploaded_file:
+    # Leitura do arquivo Excel
+    try:
+        df_ctos = pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}")
+        st.stop()
 
-    # Verifica se há CTOs não ativadas
-    ctos_nao_ativadas = df_base[
-        (df_base["cto"].str.upper().isin(input_ctos)) &
-        (df_base["status_cto"].str.upper() != "ATIVADO")
-    ]
+    # Verifica se as colunas essenciais existem
+    colunas_necessarias = ["cto", "status_cto"]
+    for col in colunas_necessarias:
+        if col not in df_ctos.columns.str.lower():
+            st.error(f"A coluna '{col}' não foi encontrada na base.")
+            st.stop()
 
-    # Filtra CTOs ATIVADAS e solicitadas
-    df_ctos = df_base[
-        (df_base["cto"].str.upper().isin(input_ctos)) &
-        (df_base["status_cto"].str.upper() == "ATIVADO")
-    ].copy()
+    # Normaliza colunas para minúsculas
+    df_ctos.columns = df_ctos.columns.str.lower()
 
-    if not df_ctos.empty:
-        # Cria coluna de identificação da PON
-        df_ctos["pon_id"] = df_ctos["pop"].astype(str) + "/" + df_ctos["slot"].astype(str) + "/" + df_ctos["olt"].astype(str) + "/" + df_ctos["pon"].astype(str)
+    # Entrada manual das CTOs a buscar
+    input_ctos = st.text_area("✍️ Insira a lista de CTOs que deseja buscar (uma por linha):").upper().splitlines()
 
-        # Calcula portas por PON
-        total_portas_pon = df_base[df_base["status_cto"].str.upper() == "ATIVADO"].copy()
-        total_portas_pon["pon_id"] = total_portas_pon["pop"].astype(str) + "/" + total_portas_pon["slot"].astype(str) + "/" + total_portas_pon["olt"].astype(str) + "/" + total_portas_pon["pon"].astype(str)
-        pon_portas = total_portas_pon.groupby("pon_id")["portas"].sum().to_dict()
+    if input_ctos:
+        # Filtrar CTOs na base
+        df_filtrado = df_ctos[df_ctos["cto"].str.upper().isin([cto.strip() for cto in input_ctos])]
 
-        # CTOs já indicadas como troca
-        ctos_indicadas = []
+        # Dividir entre ativadas e não ativadas
+        ativadas = df_filtrado[df_filtrado["status_cto"].str.upper() == "ATIVADO"]
+        nao_ativadas = df_filtrado[df_filtrado["status_cto"].str.upper() != "ATIVADO"]
 
-        def classificar(row):
-            cto = row["cto"].upper()
-            pon_id = row["pon_id"]
-            portas = row["portas"]
-            pon_total = pon_portas.get(pon_id, 0)
+        # Exibir CTOs ATIVADAS
+        st.subheader("✅ CTOs ATIVADAS")
+        if not ativadas.empty:
+            st.dataframe(ativadas)
+        else:
+            st.info("Nenhuma CTO ativada encontrada.")
 
-            if portas == 8:
-                if pon_total >= 128:
-                    return "🔴 CTO É SP8 MAS PON JÁ ESTÁ SATURADA", ""
-                else:
-                    novas_portas = 0
-                    ctos_na_pon = total_portas_pon[(total_portas_pon["pon_id"] == pon_id) & (total_portas_pon["portas"] == 8)]
-                    for _, sp8 in ctos_na_pon.iterrows():
-                        if sp8["cto"].upper() in ctos_indicadas or sp8["cto"].upper() == cto:
-                            novas_portas += 8
-                    if pon_total + novas_portas > 128:
-                        return "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON", ""
-                    else:
-                        ctos_indicadas.append(cto)
-                        return "✅ TROCA DE SP8 PARA SP16", ""
-
-            elif portas == 16:
-                if pon_total >= 128:
-                    return "🔴 CTO É SP16 MAS PON JÁ ESTÁ SATURADA", ""
-                else:
-                    ctos_sp8_candidatas = total_portas_pon[
-                        (total_portas_pon["pon_id"] == pon_id) &
-                        (total_portas_pon["portas"] == 8) &
-                        (~total_portas_pon["cto"].str.upper().isin(ctos_indicadas))
-                    ]
-                    if not ctos_sp8_candidatas.empty:
-                        cto_sugerida = ctos_sp8_candidatas.iloc[0]["cto"]
-                        return "🔴 CTO É SP16 MAS PON JÁ ESTÁ SATURADA", cto_sugerida
-                    else:
-                        return "✅ CTO JÁ É SP16 MAS A PON NÃO ESTÁ SATURADA", ""
-
-            return "⚪ STATUS INDEFINIDO", ""
-
-        df_ctos[["STATUS", "CTO_SUGERIDA_TROCA"]] = df_ctos.apply(lambda row: pd.Series(classificar(row)), axis=1)
-
-        st.subheader("✅ Resultado da Análise para CTOs Ativas")
-        st.dataframe(df_ctos)
-
+        # Exibir CTOs NÃO ATIVADAS
+        st.subheader("⚠️ CTOs NÃO ATIVADAS")
+        if not nao_ativadas.empty:
+            st.dataframe(nao_ativadas)
+        else:
+            st.success("Todas as CTOs estão ativadas.")
     else:
-        st.warning("Nenhuma CTO ATIVADA encontrada na lista fornecida.")
-
-    if not ctos_nao_ativadas.empty:
-        st.markdown("---")
-        st.subheader("⚠️ CTOs Encontradas, mas NÃO ATIVADAS")
-        st.dataframe(ctos_nao_ativadas)
+        st.warning("Digite ou cole uma lista de CTOs no campo acima.")
