@@ -9,91 +9,67 @@ st.title("🔍 Buscar por CTO")
 # Caminho fixo para a base
 caminho_base = os.path.join("pages", "base_de_dados", "base.xlsx")
 
-# Entrada do usuário
+# Lista de CTOs já indicadas
 ctos_inputadas_raw = st.text_area("✏️ Lista de CTOs já indicadas (uma por linha):")
 ctos_inputadas = [cto.strip().upper() for cto in ctos_inputadas_raw.split("\n") if cto.strip()]
 
 if st.button("🔎 Iniciar Busca de CTOs"):
     try:
         df = pd.read_excel(caminho_base, engine="openpyxl")
-    except FileNotFoundError:
-        st.error(f"Arquivo não encontrado: {caminho_base}")
-        st.stop()
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
         st.stop()
 
-    # Normalização
+    # Tratamento inicial
     df["cto"] = df["cto"].astype(str)
     df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
     df["cto_upper"] = df["cto"].str.upper()
 
-    # Pré-calcular somas e criar lookup de SP8 disponíveis
-    portas_por_caminho = df.groupby("CAMINHO_REDE")["portas"].sum().to_dict()
-    sp8_por_caminho = {}
+    # Pré-calcular total de portas por caminho de rede
+    total_portas = df.groupby("CAMINHO_REDE")["portas"].sum().rename("portas_totais").reset_index()
+    df = df.merge(total_portas, on="CAMINHO_REDE", how="left")
 
-    for caminho, grupo in df[df["portas"] == 8].groupby("CAMINHO_REDE"):
-        disponiveis = grupo[~grupo["cto_upper"].isin(ctos_inputadas)]["cto"].tolist()
-        sp8_por_caminho[caminho] = disponiveis
+    # Marcar CTOs inputadas
+    df["inputada"] = df["cto_upper"].isin(ctos_inputadas)
 
-    # Armazenar CTOs que forem trocadas
-    ctos_trocadas = set()
-    status_list = []
-    trocavel_list = []
+    # Inicializar colunas de resultado
+    df["status"] = "⚪ STATUS INDEFINIDO"
+    df["cto_trocavel"] = ""
 
-    for _, row in df.iterrows():
+    # Análise vetorizada
+    cond_sp8 = (df["portas"] == 8) & (df["portas_totais"] + 8 <= 128)
+    df.loc[cond_sp8, "status"] = "✅ TROCA DE SP8 PARA SP16"
+
+    cond_sp8_limite = (df["portas"] == 8) & (df["portas_totais"] + 8 > 128)
+    df.loc[cond_sp8_limite, "status"] = "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON"
+
+    cond_sp16_saturada = (df["portas"] == 16) & (df["portas_totais"] >= 128)
+    df.loc[cond_sp16_saturada, "status"] = "🔴 PON JÁ ESTÁ SATURADA"
+
+    # Análise de SP16 que podem trocar SP8s
+    df_sp16 = df[(df["portas"] == 16) & (df["portas_totais"] < 128)]
+    df_sp8_disponiveis = df[(df["portas"] == 8) & (~df["cto_upper"].isin(ctos_inputadas))]
+
+    for idx, row in df_sp16.iterrows():
         caminho = row["CAMINHO_REDE"]
-        cto = row["cto_upper"]
-        portas_cto = row["portas"]
-        total_portas = portas_por_caminho.get(caminho, 0)
-
-        if portas_cto == 8 and total_portas < 128:
-            if total_portas + 8 <= 128:
-                ctos_trocadas.add(cto)
-                status_list.append("✅ TROCA DE SP8 PARA SP16")
-                trocavel_list.append("")
-                portas_por_caminho[caminho] += 8  # atualiza soma futura
-            else:
-                status_list.append("⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE")
-                trocavel_list.append("")
-        elif portas_cto == 16:
-            if total_portas >= 128:
-                status_list.append("🔴 PON JÁ ESTÁ SATURADA")
-                trocavel_list.append("")
-            else:
-                candidatos = [c for c in sp8_por_caminho.get(caminho, []) if c.upper() not in ctos_inputadas and c.upper() not in ctos_trocadas]
-                encontrou = False
-                for sp8 in candidatos:
-                    nova_soma = total_portas - 8 + 16
-                    if nova_soma <= 128:
-                        status_list.append("✅ CTO JÁ É SP16 MAS PODE TROCAR SP8")
-                        trocavel_list.append(sp8)
-                        encontrou = True
-                        break
-                if not encontrou:
-                    status_list.append("🔴 CTO É SP16 MAS PON JÁ ESTÁ SATURADA")
-                    trocavel_list.append("")
-        else:
-            status_list.append("⚪ STATUS INDEFINIDO")
-            trocavel_list.append("")
-
-    df["status"] = status_list
-    df["cto_trocavel"] = trocavel_list
-    df.drop(columns=["cto_upper"], inplace=True)
+        sp8_no_caminho = df_sp8_disponiveis[df_sp8_disponiveis["CAMINHO_REDE"] == caminho]
+        if not sp8_no_caminho.empty:
+            df.at[idx, "status"] = "✅ CTO JÁ É SP16 MAS PODE TROCAR SP8 NO CAMINHO"
+            df.at[idx, "cto_trocavel"] = sp8_no_caminho.iloc[0]["cto"]
 
     st.success("✅ Análise concluída com sucesso!")
     st.dataframe(df)
 
-    # Exportar Excel
+    # Exportar para Excel
     def to_excel_bytes(df):
         output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Resultados")
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Resultados')
         return output.getvalue()
 
     st.download_button(
         label="📥 Baixar resultados em Excel",
         data=to_excel_bytes(df),
-        file_name="resultado_analise_otimizada.xlsx",
+        file_name="resultado_analise.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
