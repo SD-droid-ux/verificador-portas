@@ -1,85 +1,97 @@
 import streamlit as st
-import time
 import pandas as pd
 import os
-from collections import defaultdict
+import time
 
 st.title("🔍 Buscar por CTO")
 
 # Caminho da base de dados
 caminho_base = os.path.join("pages", "base_de_dados", "base.xlsx")
 
-# Tenta carregar os dados apenas uma vez
+# Carrega os dados da base
 if "df" not in st.session_state or "portas_por_caminho" not in st.session_state:
     try:
         df = pd.read_excel(caminho_base)
         df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
-        portas_por_caminho = df.groupby("CAMINHO_REDE")["portas"].sum().to_dict()
         st.session_state["df"] = df
-        st.session_state["portas_por_caminho"] = portas_por_caminho
+        st.session_state["portas_por_caminho"] = df.groupby("CAMINHO_REDE")["portas"].sum().to_dict()
     except FileNotFoundError:
         st.warning("⚠️ A base de dados não foi encontrada. Por favor, envie na página principal.")
         st.stop()
 
-# Recupera os dados do session_state
+# Dados em memória
 df = st.session_state["df"]
 portas_por_caminho = st.session_state["portas_por_caminho"]
 
+# Entrada do usuário
 input_ctos = list(dict.fromkeys(st.text_area("Insira os ID das CTOs (uma por linha)").upper().splitlines()))
 
+# Botão de busca
 if st.button("🔍 Buscar CTOs"):
     if not input_ctos or all(not cto.strip() for cto in input_ctos):
         st.warning("⚠️ Insira pelo menos um ID de CTO para buscar.")
-    else:
-        with st.spinner("🔄 Analisando CTOs..."):
-            progress_bar = st.progress(0)
-            for i in range(5):
-                time.sleep(0.05)
-                progress_bar.progress((i + 1) * 20)
+        st.stop()
 
-            df_ctos = df[df["cto"].str.upper().isin(input_ctos)].copy()
-            df_ctos["ordem"] = pd.Categorical(df_ctos["cto"].str.upper(), categories=input_ctos, ordered=True)
-            df_ctos = df_ctos.sort_values("ordem").drop(columns=["ordem"])
+    with st.spinner("🔄 Analisando CTOs..."):
+        progress_bar = st.progress(0)
+        for i in range(5):
+            time.sleep(0.1)
+            progress_bar.progress((i + 1) * 20)
 
-            # Dicionário auxiliar com portas restantes por caminho
-            portas_restantes = {k: 128 - v for k, v in portas_por_caminho.items()}
+        df_ctos = df[df["cto"].str.upper().isin(input_ctos)].copy()
+        df_ctos["ordem"] = pd.Categorical(df_ctos["cto"].str.upper(), categories=input_ctos, ordered=True)
+        df_ctos = df_ctos.sort_values("ordem").drop(columns=["ordem"])
 
-            def obter_status_aprimorado(df_inputado):
-                status_dict = {}
-                livres = portas_restantes.copy()
+        df_ctos["CAMINHO_REDE"] = df_ctos["pop"].astype(str) + "/" + df_ctos["olt"].astype(str) + "/" + df_ctos["slot"].astype(str) + "/" + df_ctos["pon"].astype(str)
 
-                for idx, row in df_inputado.iterrows():
-                    caminho = row["CAMINHO_REDE"]
-                    portas_cto = row["portas"]
-                    total = portas_por_caminho.get(caminho, 0)
+        input_ctos_upper = set(input_ctos)
+        df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
 
-                    if total > 128:
-                        status = "🔴 SATURADO"
-                    elif total == 128 and portas_cto == 16:
-                        status = "🔴 SATURADO"
-                    elif total == 128 and portas_cto == 8:
-                        status = "🔴 CTO É SP8 MAS PON JÁ ESTÁ SATURADA"
-                    elif portas_cto == 16 and total < 128:
-                        status = "✅ CTO JÁ É SP16 MAS A PON NÃO ESTÁ SATURADA"
-                    elif portas_cto == 8 and total < 128:
-                        if livres.get(caminho, 0) >= 8:
-                            status = "✅ TROCA DE SP8 PARA SP16"
-                            livres[caminho] -= 8
-                        else:
-                            status = "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON"
-                    else:
-                        status = "⚪ STATUS INDEFINIDO"
+        def classificar(row):
+            caminho = row["CAMINHO_REDE"]
+            total_portas = portas_por_caminho.get(caminho, 0)
 
-                    status_dict[idx] = status
+            if total_portas > 128:
+                return "🔴 SATURADO", ""
+            if total_portas == 128 and row["portas"] == 16:
+                return "🔴 CTO É SP16 MAS PON JÁ ESTÁ SATURADA", ""
+            if total_portas == 128 and row["portas"] == 8:
+                return "🔴 CTO É SP8 MAS PON JÁ ESTÁ SATURADA", ""
 
-                return status_dict
+            if row["portas"] == 8 and total_portas < 128:
+                if total_portas + 8 <= 128:
+                    return "✅ TROCA DE SP8 PARA SP16", ""
+                else:
+                    return "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON", ""
 
-            # Aplicar status
-            df_ctos["STATUS"] = pd.Series(obter_status_aprimorado(df_ctos))
+            if row["portas"] == 16 and total_portas < 128:
+                # Verifica SP8 disponíveis fora da lista do usuário e fora das trocas já indicadas
+                sp8_disponiveis = df[
+                    (df["CAMINHO_REDE"] == caminho) &
+                    (df["portas"] == 8) &
+                    (~df["cto"].str.upper().isin(input_ctos_upper)) &
+                    (~df["cto"].str.upper().isin(
+                        df_ctos[df_ctos["STATUS"].str.contains("TROCA", na=False)]["cto"].str.upper()
+                    ))
+                ]
 
-            if df_ctos.empty:
-                st.info("Nenhuma CTO encontrada para os IDs informados.")
-            else:
-                st.dataframe(df_ctos, use_container_width=True)
+                if not sp8_disponiveis.empty:
+                    cto_alvo = sp8_disponiveis.iloc[0]["cto"]
+                    return "🔴 CTO É SP16 MAS PON JÁ ESTÁ SATURADA", cto_alvo
+                else:
+                    return "✅ CTO JÁ É SP16 MAS A PON NÃO ESTÁ SATURADA", ""
+
+            return "⚪ STATUS INDEFINIDO", ""
+
+        df_ctos[["STATUS", "CTO_SUGERIDA_TROCA"]] = df_ctos.apply(lambda row: pd.Series(classificar(row)), axis=1)
+
+        st.success(f"✅ {len(df_ctos)} CTO(s) analisadas.")
+        st.dataframe(df_ctos)
+
+        st.download_button(
+            label="📥 Baixar Resultado (.xlsx)",
+            data=df_ctos.to_excel(index=False),
+            file_name="resultado_ctos.xlsx"
+        )
 
         progress_bar.empty()
