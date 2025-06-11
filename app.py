@@ -1,85 +1,85 @@
 import streamlit as st
-import pandas as pd
 import time
+import pandas as pd
+import os
+from collections import defaultdict
 
-st.set_page_config(layout="wide")
-st.title("📊 Verificador de Portas por Caminho de Rede")
+st.title("🔍 Buscar por CTO")
 
-uploaded_file = st.file_uploader("📂 Envie a planilha Excel", type=[".xlsx"])
+# Caminho da base de dados
+caminho_base = os.path.join("pages", "base_de_dados", "base.xlsx")
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    df = df.loc[:, ~df.columns.duplicated()]
+# Tenta carregar os dados apenas uma vez
+if "df" not in st.session_state or "portas_por_caminho" not in st.session_state:
+    try:
+        df = pd.read_excel(caminho_base)
+        df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
+        portas_por_caminho = df.groupby("CAMINHO_REDE")["portas"].sum().to_dict()
+        st.session_state["df"] = df
+        st.session_state["portas_por_caminho"] = portas_por_caminho
+    except FileNotFoundError:
+        st.warning("⚠️ A base de dados não foi encontrada. Por favor, envie na página principal.")
+        st.stop()
 
-    colunas_essenciais = ["POP", "CHASSI", "PLACA", "OLT", "PORTAS", "ID CTO", "CIDADE"]
-    if not all(col in df.columns for col in colunas_essenciais):
-        st.error("❌ Colunas essenciais ausentes na planilha. Verifique se possui: " + ", ".join(colunas_essenciais))
+# Recupera os dados do session_state
+df = st.session_state["df"]
+portas_por_caminho = st.session_state["portas_por_caminho"]
+
+input_ctos = list(dict.fromkeys(st.text_area("Insira os ID das CTOs (uma por linha)").upper().splitlines()))
+
+if st.button("🔍 Buscar CTOs"):
+    if not input_ctos or all(not cto.strip() for cto in input_ctos):
+        st.warning("⚠️ Insira pelo menos um ID de CTO para buscar.")
     else:
-        df["CAMINHO_REDE"] = df["POP"].astype(str) + " / " + df["CHASSI"].astype(str) + " / " + df["PLACA"].astype(str) + " / " + df["OLT"].astype(str)
+        with st.spinner("🔄 Analisando CTOs..."):
+            progress_bar = st.progress(0)
+            for i in range(5):
+                time.sleep(0.05)
+                progress_bar.progress((i + 1) * 20)
 
-        aba = st.sidebar.radio("Selecione a aba", ["1. Visão Geral", "2. Filtro por Cidade", "3. Buscar por CTO"])
+            df_ctos = df[df["cto"].str.upper().isin(input_ctos)].copy()
+            df_ctos["ordem"] = pd.Categorical(df_ctos["cto"].str.upper(), categories=input_ctos, ordered=True)
+            df_ctos = df_ctos.sort_values("ordem").drop(columns=["ordem"])
 
-        if aba == "1. Visão Geral":
-            with st.spinner("🔄 Carregando visão geral..."):
-                progress_bar = st.progress(0)
-                for i in range(5):
-                    time.sleep(0.2)
-                    progress_bar.progress((i + 1) * 20)
+            # Dicionário auxiliar com portas restantes por caminho
+            portas_restantes = {k: 128 - v for k, v in portas_por_caminho.items()}
 
-                total_ctos = len(df)
-                total_portas = df["PORTAS"].sum()
-                caminho_rede_grupo = df.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
-                saturados = caminho_rede_grupo[caminho_rede_grupo["PORTAS"] > 128]
+            def obter_status_aprimorado(df_inputado):
+                status_dict = {}
+                livres = portas_restantes.copy()
 
-            progress_bar.empty()
+                for idx, row in df_inputado.iterrows():
+                    caminho = row["CAMINHO_REDE"]
+                    portas_cto = row["portas"]
+                    total = portas_por_caminho.get(caminho, 0)
 
-            st.metric("🔢 Total de CTOs", total_ctos)
-            st.metric("🔌 Total de Portas", total_portas)
-            st.metric("🔴 Caminhos Saturados", len(saturados))
-
-        elif aba == "2. Filtro por Cidade":
-            cidade = st.selectbox("Selecione a Cidade", df["CIDADE"].unique())
-
-            if st.button("🔍 Filtrar Caminhos Saturados"):
-                with st.spinner("🔄 Analisando cidade selecionada..."):
-                    progress_bar = st.progress(0)
-                    for i in range(5):
-                        time.sleep(0.2)
-                        progress_bar.progress((i + 1) * 20)
-
-                    df_cidade = df[df["CIDADE"] == cidade]
-                    grupo = df_cidade.groupby("CAMINHO_REDE")["PORTAS"].sum().reset_index()
-                    saturados = grupo[grupo["PORTAS"] > 128]
-
-                    st.subheader(f"Caminhos Saturados em {cidade}")
-                    st.dataframe(saturados)
-
-                progress_bar.empty()
-
-        elif aba == "3. Buscar por CTO":
-            input_ctos = st.text_area("Insira os ID das CTOs (uma por linha)").splitlines()
-
-            if st.button("🔍 Buscar CTOs"):
-                with st.spinner("🔄 Analisando CTOs..."):
-                    progress_bar = st.progress(0)
-                    for i in range(5):
-                        time.sleep(0.2)
-                        progress_bar.progress((i + 1) * 20)
-
-                    df_ctos = df[df["NOME ANTIGO CTO"].isin(input_ctos)]
-
-                    def verificar_status(linha):
-                        total = df[df["CAMINHO_REDE"] == linha["CAMINHO_REDE"]]["PORTAS"].sum()
-                        if total > 128:
-                            return "🔴 Saturado"
-                        elif linha["PORTAS"] == 16:
-                            return "⚠️ 16 portas (fora padrão)"
+                    if total > 128:
+                        status = "🔴 SATURADO"
+                    elif total == 128 and portas_cto == 16:
+                        status = "🔴 SATURADO"
+                    elif total == 128 and portas_cto == 8:
+                        status = "🔴 CTO É SP8 MAS PON JÁ ESTÁ SATURADA"
+                    elif portas_cto == 16 and total < 128:
+                        status = "✅ CTO JÁ É SP16 MAS A PON NÃO ESTÁ SATURADA"
+                    elif portas_cto == 8 and total < 128:
+                        if livres.get(caminho, 0) >= 8:
+                            status = "✅ TROCA DE SP8 PARA SP16"
+                            livres[caminho] -= 8
                         else:
-                            return "✅ OK"
+                            status = "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON"
+                    else:
+                        status = "⚪ STATUS INDEFINIDO"
 
-                    df_ctos["STATUS"] = df_ctos.apply(verificar_status, axis=1)
-                    st.dataframe(df_ctos)
+                    status_dict[idx] = status
 
-                progress_bar.empty()
-else:
-    st.info("📥 Aguarde o envio de um arquivo para iniciar a análise.")
+                return status_dict
+
+            # Aplicar status
+            df_ctos["STATUS"] = pd.Series(obter_status_aprimorado(df_ctos))
+
+            if df_ctos.empty:
+                st.info("Nenhuma CTO encontrada para os IDs informados.")
+            else:
+                st.dataframe(df_ctos, use_container_width=True)
+
+        progress_bar.empty()
