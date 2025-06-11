@@ -9,7 +9,7 @@ st.title("🔍 Buscar por CTO")
 # Função para exportar DataFrame para Excel em memória
 def to_excel_bytes(df):
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
     return output.getvalue()
 
