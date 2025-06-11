@@ -43,9 +43,12 @@ if st.button("🔍 Buscar CTOs"):
         df_ctos = df_ctos.sort_values("ordem").drop(columns=["ordem"])
 
         df_ctos["CAMINHO_REDE"] = df_ctos["pop"].astype(str) + "/" + df_ctos["olt"].astype(str) + "/" + df_ctos["slot"].astype(str) + "/" + df_ctos["pon"].astype(str)
+        df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
 
         input_ctos_upper = set(input_ctos)
-        df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
+
+        # Lista temporária com CTOs de troca já categorizadas (será atualizada após)
+        ctos_trocadas = set()
 
         def classificar(row):
             caminho = row["CAMINHO_REDE"]
@@ -60,19 +63,18 @@ if st.button("🔍 Buscar CTOs"):
 
             if row["portas"] == 8 and total_portas < 128:
                 if total_portas + 8 <= 128:
+                    ctos_trocadas.add(row["cto"].upper())
                     return "✅ TROCA DE SP8 PARA SP16", ""
                 else:
                     return "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE DE PORTAS NA PON", ""
 
             if row["portas"] == 16 and total_portas < 128:
-                # Verifica SP8 disponíveis fora da lista do usuário e fora das trocas já indicadas
+                # Buscar SP8 fora da lista e fora das já trocadas
                 sp8_disponiveis = df[
                     (df["CAMINHO_REDE"] == caminho) &
                     (df["portas"] == 8) &
                     (~df["cto"].str.upper().isin(input_ctos_upper)) &
-                    (~df["cto"].str.upper().isin(
-                        df_ctos[df_ctos["STATUS"].str.contains("TROCA", na=False)]["cto"].str.upper()
-                    ))
+                    (~df["cto"].str.upper().isin(ctos_trocadas))
                 ]
 
                 if not sp8_disponiveis.empty:
