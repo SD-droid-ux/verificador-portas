@@ -92,6 +92,7 @@ if input_ctos and iniciar:
                 "portas_existentes": portas_atual,
                 "portas_novas": portas_novas,
                 "total_de_portas": portas_acumuladas[caminho],
+                "tipo_cto": f"SP{row.portas}",
             })
 
             if i % 5 == 0 or i == total - 1:
@@ -114,6 +115,7 @@ if input_ctos and iniciar:
                 "portas_existentes": None,
                 "portas_novas": None,
                 "total_de_portas": None,
+                "tipo_cto": None,
             })
 
         df_resultado = pd.DataFrame(resultados)
