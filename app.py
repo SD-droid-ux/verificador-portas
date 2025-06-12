@@ -79,20 +79,20 @@ if input_ctos and iniciar:
             portas_acumuladas[caminho] = portas_atual + portas_novas
 
             resultados.append({
-                "cto": cto_nome,
-                "id_cto": row.id_cto,
-                "status": status,
-                "cto_ativa": "SIM",
-                "pop": row.pop,
-                "olt": row.olt,
-                "slot": row.slot,
-                "pon": row.pon,
-                "latitude": row.latitude,
-                "longitude": row.longitude,
-                "portas_existentes": portas_atual,
-                "portas_novas": portas_novas,
-                "total_de_portas": portas_acumuladas[caminho],
-                "tipo_cto": f"SP{row.portas}",
+                "CTO": cto_nome,
+                "STATUS": status,
+                "POP": row.pop,
+                "CHASSI": row.olt,
+                "PLACA": row.slot,
+                "OLT": row.pon,
+                "ID_CTO": row.id_cto,
+                "LATITUDE": row.latitude,
+                "LONGITUDE": row.longitude,
+                "CTO_ATIVA": "SIM",
+                "PORTAS_EXISTENTES": portas_atual,
+                "PORTAS_NOVAS": portas_novas,
+                "_TOTAL_DE_PORTAS_": portas_acumuladas[caminho],
+                "TIPO_CTO": f"SP{row.portas}",
             })
 
             if i % 5 == 0 or i == total - 1:
@@ -102,20 +102,20 @@ if input_ctos and iniciar:
         ctos_nao_encontradas = set(ctos_inputadas) - set(df_filtrada["cto"].str.upper())
         for cto_nao in ctos_nao_encontradas:
             resultados.append({
-                "cto": cto_nao,
-                "id_cto": None,
-                "status": "❌ NÃO ENCONTRADA",
-                "cto_ativa": "NÃO",
-                "pop": None,
-                "olt": None,
-                "slot": None,
-                "pon": None,
-                "latitude": None,
-                "longitude": None,
-                "portas_existentes": None,
-                "portas_novas": None,
-                "total_de_portas": None,
-                "tipo_cto": None,
+                "CTO": cto_nao,
+                "STATUS": "❌ NÃO ENCONTRADA",
+                "POP": None
+                "CHASSI": None,
+                "PLACA": None,
+                "OLT": None,
+                "ID_CTO": None,
+                "LATITUDE": None,
+                "LONGITUDE": None
+                "CTO_ATIVA": "NÃO",
+                "PORTAS_EXISTENTES": None,
+                "PORTAS_NOVAS": None,
+                "TOTAL_DE_PORTAS": None,
+                "TIPO_DE_CTO": None,
             })
 
         df_resultado = pd.DataFrame(resultados)
