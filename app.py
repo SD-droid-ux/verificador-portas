@@ -13,8 +13,8 @@ def carregar_base():
 # Carrega a base
 base_df = carregar_base()
 
-# Verifica colunas obrigatórias (sem CAMINHO_REDE)
-colunas_necessarias = ["pop", "olt", "slot", "pon", "cto", "portas"]
+# Verifica colunas obrigatórias
+colunas_necessarias = ["pop", "olt", "slot", "pon", "cto", "portas", "latitude", "longitude", "id_cto"]
 colunas_faltando = [col for col in colunas_necessarias if col not in base_df.columns]
 if colunas_faltando:
     st.error(f"❌ A base de dados está faltando as colunas: {', '.join(colunas_faltando)}")
@@ -34,7 +34,13 @@ input_ctos = st.text_area("Lista de CTOs")
 iniciar = st.button("🚀 Iniciar Análise")
 
 if input_ctos and iniciar:
+    # Lista das CTOs digitadas
     ctos_inputadas = [cto.strip().upper() for cto in input_ctos.split("\n") if cto.strip()]
+    # Verifica duplicatas na lista
+    duplicadas = set([cto for cto in ctos_inputadas if ctos_inputadas.count(cto) > 1])
+    if duplicadas:
+        st.warning(f"⚠️ CTOs duplicadas na entrada: {', '.join(duplicadas)}")
+
     df_filtrada = base_df[base_df["cto"].str.upper().isin(set(ctos_inputadas))].copy()
 
     if df_filtrada.empty:
@@ -64,19 +70,19 @@ if input_ctos and iniciar:
 
             portas_acumuladas[caminho] = portas_atual + portas_novas
 
-            caminho_splitado = caminho.split("/") if isinstance(caminho, str) else ["", ""]
             resultados.append({
                 "cto": cto_nome,
+                "id_cto": row.id_cto,
                 "status": status,
                 "pop": row.pop,
                 "olt": row.olt,
                 "slot": row.slot,
                 "pon": row.pon,
+                "latitude": row.latitude,
+                "longitude": row.longitude,
                 "portas_existentes": portas_atual,
                 "portas_novas": portas_novas,
                 "total_de_portas": portas_acumuladas[caminho],
-                "caminho_parte1": caminho_splitado[0],
-                "caminho_parte2": caminho_splitado[1] if len(caminho_splitado) > 1 else ""
             })
 
             if i % 5 == 0 or i == total - 1:
