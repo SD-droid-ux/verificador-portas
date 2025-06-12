@@ -116,16 +116,7 @@ if input_ctos and iniciar:
                 "total_de_portas": None,
             })
 
-        df_resultado = pd.DataFrame(resultados)
-
-        # Filtro lateral por status
-        st.sidebar.subheader("📌 Filtro de Status")
-        status_selecionados = st.sidebar.multiselect(
-            "Filtrar por status:",
-            options=df_resultado["status"].unique().tolist(),
-            default=df_resultado["status"].unique().tolist()
-        )
-        df_filtrado = df_resultado[df_resultado["status"].isin(status_selecionados)]
+        
 
         st.success(f"✅ Análise concluída para {len(df_resultado)} CTO(s).")
         st.dataframe(df_filtrado, use_container_width=True)
