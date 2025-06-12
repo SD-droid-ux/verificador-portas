@@ -71,7 +71,7 @@ if input_ctos and iniciar:
             portas_acumuladas[caminho] = portas_atual + portas_novas
 
             resultados.append({
-                "cto": cto_nome,
+                " CTO ": cto_nome,
                 "id_cto": row.id_cto,
                 "status": status,
                 "pop": row.pop,
