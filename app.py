@@ -71,18 +71,18 @@ if input_ctos and iniciar:
             portas_acumuladas[caminho] = portas_atual + portas_novas
 
             resultados.append({
-                " CTO ": cto_nome,
-                "id_cto": row.id_cto,
-                "status": status,
-                "pop": row.pop,
-                "olt": row.olt,
-                "slot": row.slot,
-                "pon": row.pon,
-                "latitude": row.latitude,
-                "longitude": row.longitude,
-                "portas_existentes": portas_atual,
-                "portas_novas": portas_novas,
-                "total_de_portas": portas_acumuladas[caminho],
+                "CTO": cto_nome,
+                "iID_CTO": row.id_cto,
+                "STATUS": status,
+                "POP": row.pop,
+                "CHASSI": row.olt,
+                "PLACA": row.slot,
+                "OLT": row.pon,
+                "Latitude": row.latitude,
+                "Longitude": row.longitude,
+                "Portas_Existentes": portas_atual,
+                "Portas_Novas": portas_novas,
+                "Total_de_Portas": portas_acumuladas[caminho],
             })
 
             if i % 5 == 0 or i == total - 1:
