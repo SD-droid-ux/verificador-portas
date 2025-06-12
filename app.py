@@ -13,12 +13,20 @@ def carregar_base():
 # Carrega a base
 base_df = carregar_base()
 
-# Verifica se as colunas necessárias estão na base
-colunas_necessarias = ["pop", "olt", "slot", "pon", "cto", "portas", "CAMINHO_REDE"]
+# Verifica colunas obrigatórias (sem CAMINHO_REDE)
+colunas_necessarias = ["pop", "olt", "slot", "pon", "cto", "portas"]
 colunas_faltando = [col for col in colunas_necessarias if col not in base_df.columns]
 if colunas_faltando:
     st.error(f"❌ A base de dados está faltando as colunas: {', '.join(colunas_faltando)}")
     st.stop()
+
+# Cria a coluna CAMINHO_REDE
+base_df["CAMINHO_REDE"] = (
+    base_df["pop"].astype(str) + "/" +
+    base_df["olt"].astype(str) + "/" +
+    base_df["slot"].astype(str) + "/" +
+    base_df["pon"].astype(str)
+)
 
 st.markdown("Insira a lista de CTOs que deseja analisar (uma por linha):")
 input_ctos = st.text_area("Lista de CTOs")
