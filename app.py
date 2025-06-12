@@ -1,100 +1,78 @@
 import streamlit as st
 import pandas as pd
 import os
-import time
+from collections import defaultdict
 
 st.set_page_config(page_title="Buscar por CTO", layout="wide")
 st.title("🔍 Buscar por CTO")
 
+# Caminho fixo para a base
 caminho_base = os.path.join("pages", "base_de_dados", "base.xlsx")
 
-@st.cache_data(show_spinner=False)
-def carregar_base(caminho):
-    df = pd.read_excel(caminho, engine="openpyxl")
-    df["cto"] = df["cto"].astype(str)
-    df["cto_upper"] = df["cto"].str.upper()
-    df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
-    return df
-
-# Entrada do usuário
-ctos_inputadas_raw = st.text_area("✏️ Lista de CTOs para analisar (uma por linha):")
+# Lista de CTOs já indicadas
+ctos_inputadas_raw = st.text_area("✏️ Lista de CTOs já indicadas (uma por linha):")
 ctos_inputadas = [cto.strip().upper() for cto in ctos_inputadas_raw.split("\n") if cto.strip()]
 
-if st.button("🔎 Iniciar análise individual"):
-    if not ctos_inputadas:
-        st.warning("Insira ao menos uma CTO.")
-        st.stop()
-
+# Botão para iniciar a busca
+if st.button("🔎 Iniciar Busca de CTOs"):
     try:
-        df = carregar_base(caminho_base)
+        df = pd.read_excel(caminho_base, engine="openpyxl")
+    except FileNotFoundError:
+        st.error(f"Arquivo não encontrado: {caminho_base}")
+        st.stop()
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
         st.stop()
 
+    # Tratamento inicial
+    df["cto"] = df["cto"].astype(str).str.upper()
+    df["CAMINHO_REDE"] = df["pop"].astype(str) + "/" + df["olt"].astype(str) + "/" + df["slot"].astype(str) + "/" + df["pon"].astype(str)
+
+    # Filtrar apenas as CTOs indicadas
+    df_filtrado = df[df["cto"].isin(ctos_inputadas)].copy()
+    if df_filtrado.empty:
+        st.warning("Nenhuma CTO indicada foi encontrada na base.")
+        st.stop()
+
+    # Cálculo de portas existentes por caminho de rede
+    portas_existentes_dict = df.groupby("CAMINHO_REDE")["portas"].sum().to_dict()
+    portas_acumuladas = defaultdict(int)
+
     resultados = []
-    progresso = st.progress(0, text="⏳ Iniciando análise...")
 
-    total = len(ctos_inputadas)
-    for i, cto_input in enumerate(ctos_inputadas):
-        progresso.progress((i + 1) / total, text=f"🔎 Analisando CTO {i+1} de {total}: {cto_input}")
+    progress_bar = st.progress(0)
+    total = len(df_filtrado)
 
-        cto_linha = df[df["cto_upper"] == cto_input]
+    for i, (_, row) in enumerate(df_filtrado.iterrows(), start=1):
+        cto = row["cto"]
+        caminho = row["CAMINHO_REDE"]
+        pop, olt, slot, pon = row["pop"], row["olt"], row["slot"], row["pon"]
+        portas_novas = row["portas"]
 
-        if cto_linha.empty:
-            resultados.append({
-                "cto": cto_input,
-                "status": "❌ CTO não encontrada na base",
-                "pop": "-", "olt": "-", "slot": "-", "pon": "-",
-                "portas_existentes": "-", "portas_novas": "-", "total_de_portas": "-",
-                "cto_trocavel": "-"
-            })
-            continue
+        portas_existentes = portas_existentes_dict.get(caminho, 0)
+        acumulado = portas_acumuladas[caminho]
+        total_portas = portas_existentes + acumulado + portas_novas
 
-        cto_linha = cto_linha.iloc[0]
-        caminho_rede = cto_linha["CAMINHO_REDE"]
-        portas_cto = cto_linha["portas"]
-        pop = cto_linha["pop"]
-        olt = cto_linha["olt"]
-        slot = cto_linha["slot"]
-        pon = cto_linha["pon"]
-
-        df_caminho = df[df["CAMINHO_REDE"] == caminho_rede]
-        portas_existentes = df_caminho["portas"].sum()
-
-        portas_novas = 8 if portas_cto == 8 else 0
-        total_de_portas = portas_existentes + portas_novas
-
-        status = "⚪ STATUS INDEFINIDO"
-        cto_trocavel = ""
-
-        if portas_cto == 8 and total_de_portas <= 128:
+        if total_portas <= 128:
             status = "✅ TROCA DE SP8 PARA SP16"
-        elif portas_cto == 8 and total_de_portas > 128:
-            status = "⚠️ TROCA DE SP8 PARA SP16 EXCEDE LIMITE"
-        elif portas_cto == 16 and portas_existentes >= 128:
-            status = "🔴 CTO É SP16 E CAMINHO SATURADO"
-        elif portas_cto == 16 and portas_existentes < 128:
-            df_sp8_disp = df_caminho[(df_caminho["portas"] == 8) & (df_caminho["cto_upper"] != cto_input)]
-            if not df_sp8_disp.empty:
-                cto_trocavel = df_sp8_disp.iloc[0]["cto"]
-                status = "✅ CTO É SP16 E PODE TROCAR OUTRA SP8"
-            else:
-                status = "🔴 CTO É SP16, SEM SP8 DISPONÍVEL"
+            portas_acumuladas[caminho] += portas_novas
+        else:
+            status = "🔴 EXCEDE LIMITE DE PORTAS"
 
         resultados.append({
-            "cto": cto_input,
+            "cto": cto,
             "status": status,
             "pop": pop,
             "olt": olt,
             "slot": slot,
             "pon": pon,
-            "portas_existentes": portas_existentes,
+            "portas_existentes": portas_existentes + acumulado,
             "portas_novas": portas_novas,
-            "total_de_portas": total_de_portas,
-            "cto_trocavel": cto_trocavel
+            "total_de_portas": total_portas
         })
 
-    progresso.empty()
-    df_resultado = pd.DataFrame(resultados)
+        progress_bar.progress(i / total)
+
+    resultado_df = pd.DataFrame(resultados)
     st.success("✅ Análise concluída com sucesso!")
-    st.dataframe(df_resultado, use_container_width=True)
+    st.dataframe(resultado_df, use_container_width=True)
