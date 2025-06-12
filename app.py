@@ -102,20 +102,20 @@ if input_ctos and iniciar:
         ctos_nao_encontradas = set(ctos_inputadas) - set(df_filtrada["cto"].str.upper())
         for cto_nao in ctos_nao_encontradas:
             resultados.append({
-                "CTO": cto_nao,
-                "STATUS": "❌ NÃO ENCONTRADA",
-                "POP": None
-                "CHASSI": None,
-                "PLACA": None,
-                "OLT": None,
-                "ID_CTO": None,
-                "LATITUDE": None,
-                "LONGITUDE": None
-                "CTO_ATIVA": "NÃO",
-                "PORTAS_EXISTENTES": None,
-                "PORTAS_NOVAS": None,
-                "TOTAL_DE_PORTAS": None,
-                "TIPO_DE_CTO": None,
+                "cto": cto_nao,
+                "id_cto": None,
+                "status": "❌ NÃO ENCONTRADA",
+                "cto_ativa": "NÃO",
+                "pop": None,
+                "olt": None,
+                "slot": None,
+                "pon": None,
+                "latitude": None,
+                "longitude": None,
+                "portas_existentes": None,
+                "portas_novas": None,
+                "total_de_portas": None,
+                "TIPO_CTO": None,
             })
 
         df_resultado = pd.DataFrame(resultados)
