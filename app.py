@@ -116,10 +116,10 @@ if input_ctos and iniciar:
                 "total_de_portas": None,
             })
 
-        
+        df_resultado = pd.DataFrame(resultados)
 
         st.success(f"✅ Análise concluída para {len(df_resultado)} CTO(s).")
-        st.dataframe(df_filtrado, use_container_width=True)
+        st.dataframe(df_resultado, use_container_width=True)
 
 elif not input_ctos:
     st.info("Insira as CTOs desejadas para iniciar a análise.")
